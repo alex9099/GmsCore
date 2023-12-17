@@ -19,6 +19,22 @@ import org.microg.gms.fido.core.protocol.*
 import org.microg.gms.fido.core.protocol.msgs.*
 import org.microg.gms.fido.core.transport.nfc.CtapNfcMessageStatusException
 import org.microg.gms.fido.core.transport.usb.ctaphid.CtapHidMessageStatusException
+import org.microg.gms.utils.toHexString
+import java.math.BigInteger
+import java.nio.charset.Charset
+import java.security.AlgorithmParameters
+import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.MessageDigest
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
+import javax.crypto.spec.SecretKeySpec
+
 
 abstract class TransportHandler(val transport: Transport, val callback: TransportHandlerCallback?) {
     open val isSupported: Boolean
@@ -200,6 +216,49 @@ abstract class TransportHandler(val transport: Transport, val callback: Transpor
             extensions["uvm"] =
                 options.authenticationExtensions!!.userVerificationMethodExtension!!.uvm.encodeAsCbor()
         }
+
+        val authenticatorKeyAgreementRequest = AuthenticatorClientPinRequest(true)
+        val authenticatorKeyAgreement = connection.runCommand(AuthenticatorClientPinCommand(authenticatorKeyAgreementRequest))
+
+        val pubPoint = ECPoint(BigInteger(1, authenticatorKeyAgreement.x), BigInteger(1, authenticatorKeyAgreement.y))
+        val parameters: AlgorithmParameters = AlgorithmParameters.getInstance("EC")
+        parameters.init(ECGenParameterSpec("secp256r1"))
+        val ecParameters: ECParameterSpec = parameters.getParameterSpec(ECParameterSpec::class.java)
+        val pubSpec = ECPublicKeySpec(pubPoint, ecParameters)
+        val kf = KeyFactory.getInstance("EC")
+        val authenticatorPubkey = kf.generatePublic(pubSpec) as ECPublicKey
+        val keyAgreement = KeyAgreement.getInstance("ECDH")
+
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        val ecParameterSpec = ECGenParameterSpec("secp256r1")
+        keyPairGenerator.initialize(ecParameterSpec)
+        val ecdhKeyPair = keyPairGenerator.genKeyPair()
+
+        val platformPublicKey : ECPoint = (ecdhKeyPair.public as ECPublicKey).getW()
+
+        keyAgreement.init(ecdhKeyPair.private)
+        keyAgreement.doPhase(authenticatorPubkey, true)
+        val secret = keyAgreement.generateSecret()
+
+        val pinCode = "1234"
+        val PinCodePadding = 63 - pinCode.length
+        val pinCodePadded = pinCode.toByteArray(Charset.forName("UTF-8")) + ByteArray(PinCodePadding)
+        val pinCodeHashed = MessageDigest.getInstance("SHA-256").digest(pinCodePadded)
+
+        val c = Cipher.getInstance("AES_256/CBC/NoPadding")
+        c.init(Cipher.ENCRYPT_MODE, SecretKeySpec(secret, "AES_256"))
+        val finalEncrypted = c.doFinal(pinCodeHashed)
+
+       Log.d("encrypted", finalEncrypted.toHexString())
+       Log.d("hashed", pinCodeHashed.toHexString())
+        Log.d("shared", secret.toHexString())
+
+
+        val pinRequest = AuthenticatorClientPinRequest(false, platformPublicKey, finalEncrypted)
+        val pin = connection.runCommand(AuthenticatorClientPinCommand(pinRequest))
+
+
+
         val request = AuthenticatorGetAssertionRequest(
             options.rpId,
             clientDataHash,

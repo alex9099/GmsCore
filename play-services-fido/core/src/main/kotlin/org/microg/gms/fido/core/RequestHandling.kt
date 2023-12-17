@@ -157,9 +157,10 @@ suspend fun RequestOptions.checkIsValid(context: Context, facetId: String, packa
         }
     }
     if (type == SIGN) {
-        if (signOptions.allowList.isNullOrEmpty()) {
-            throw RequestHandlingException(NOT_ALLOWED_ERR, "Request doesn't have a valid list of allowed credentials.")
-        }
+        //FIXME: When using "passkeys" (login without user or pass) the allowList comes empty
+        // if (signOptions.allowList.isNullOrEmpty()) {
+        //     throw RequestHandlingException(NOT_ALLOWED_ERR, "Request doesn't have a valid list of allowed credentials.")
+        // }
     }
     if (facetId.startsWith("https://")) {
         if (topDomainOf(Uri.parse(facetId).host) != topDomainOf(rpId)) {
