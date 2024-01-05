@@ -33,8 +33,8 @@ class AuthenticatorClientPinRequest(
                 set(1, 2.encodeAsCbor())
                 set(3, (-25).encodeAsCbor())
                 set(-1, 1.encodeAsCbor())
-                set(-2, platformPublicKey.affineX.toByteArray().encodeAsCbor())
-                set(-3, platformPublicKey.affineY.toByteArray().encodeAsCbor())
+                set(-2, platformPublicKey.affineX.encodeAsCbor())
+                set(-3, platformPublicKey.affineY.encodeAsCbor())
             })
         }
         set(0x06, encryptedPin?.encodeAsCbor())
