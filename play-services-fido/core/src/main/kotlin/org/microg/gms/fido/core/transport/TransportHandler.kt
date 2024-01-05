@@ -20,7 +20,6 @@ import org.microg.gms.fido.core.transport.nfc.CtapNfcMessageStatusException
 import org.microg.gms.fido.core.transport.usb.ctaphid.CtapHidMessageStatusException
 import org.microg.gms.utils.toHexString
 import java.math.BigInteger
-import java.nio.charset.Charset
 import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -217,59 +216,53 @@ abstract class TransportHandler(val transport: Transport, val callback: Transpor
                 options.authenticationExtensions!!.userVerificationMethodExtension!!.uvm.encodeAsCbor()
         }
 
-        val authenticatorKeyAgreementRequest = AuthenticatorClientPinRequest(true)
-        val authenticatorKeyAgreement = connection.runCommand(AuthenticatorClientPinCommand(authenticatorKeyAgreementRequest))
+        val authenticatorKeyAgreementRequest = AuthenticatorGetKeyAgreementRequest()
+        val authenticatorKeyAgreement = connection.runCommand(AuthenticatorGetKeyAgreementCommand(authenticatorKeyAgreementRequest))
 
-        Log.d("auth.x bigint", BigInteger(1, authenticatorKeyAgreement.x).toString() + "")
-        Log.d("auth.y bigint", BigInteger(1, authenticatorKeyAgreement.y).toString() + "")
-
+        //Turns the coordinates into an ECPoint
         val pubPoint = ECPoint(BigInteger(1, authenticatorKeyAgreement.x), BigInteger(1, authenticatorKeyAgreement.y))
         val parameters: AlgorithmParameters = AlgorithmParameters.getInstance("EC")
         parameters.init(ECGenParameterSpec("secp256r1"))
         val ecParameters: ECParameterSpec = parameters.getParameterSpec(ECParameterSpec::class.java)
         val pubSpec = ECPublicKeySpec(pubPoint, ecParameters)
+
+        //Convert the point to a EC public key
         val kf = KeyFactory.getInstance("EC")
         val authenticatorPubkey = kf.generatePublic(pubSpec)
-        val keyAgreement = KeyAgreement.getInstance("ECDH")
 
+        //Generates the platform keypair (ecdhKeyPair)
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         val ecParameterSpec = ECGenParameterSpec("secp256r1")
         keyPairGenerator.initialize(ecParameterSpec)
         val ecdhKeyPair = keyPairGenerator.genKeyPair()
 
+        //Cast public key as a ECPoint in order to get X and Y coordinates
         val platformPublicKey : ECPoint = (ecdhKeyPair.public as ECPublicKey).getW()
 
-        Log.d("getW.x", platformPublicKey.affineX.toString())
-        Log.d("getW.y", platformPublicKey.affineY.toString())
-
-        Log.d("host.priv", ecdhKeyPair.private.encoded.toHexString())
-
+        //Performs the ECDH calculations to generate the shared secret
+        val keyAgreement = KeyAgreement.getInstance("ECDH")
         keyAgreement.init(ecdhKeyPair.private)
         keyAgreement.doPhase(authenticatorPubkey, true)
-        val secret = keyAgreement.generateSecret()
 
-        Log.d("secret", secret.toHexString())
+        //Hashes the Shared Secret with SHA256
+        val secret = MessageDigest.getInstance("SHA-256").digest(keyAgreement.generateSecret())
 
-        val pinCode = "1713"
-        val PinCodePadding = 15 - pinCode.length
-        val pinCodePadded = pinCode.toByteArray(Charset.forName("UTF-8")) + ByteArray(PinCodePadding)
+        //FIXME: Get the pin from the UI
+        val pinCode = "1234"
+
+        //Hashes the PIN and gets the 16 "first" (left) bytes
         val pinCodeHashed = MessageDigest.getInstance("SHA-256").digest(pinCode.toByteArray()).sliceArray(0 until 16)
 
+        //Encrypts the left 16 bytes of the hashed pin with AES256-CBC, IV=0
         val c = Cipher.getInstance("AES_256/CBC/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, SecretKeySpec(secret, "AES_256"), IvParameterSpec(ByteArray(16)))
         val finalEncrypted = c.doFinal(pinCodeHashed)
 
-        val cn = Cipher.getInstance("AES_256/CBC/NoPadding")
-        cn.init(Cipher.DECRYPT_MODE, SecretKeySpec(secret, "AES_256"), IvParameterSpec(ByteArray(16)))
 
-        Log.d("encrypted", finalEncrypted.toHexString())
-        Log.d("decrypted", cn.doFinal(finalEncrypted).toHexString())
-        Log.d("hashed", pinCodeHashed.toHexString())
-        Log.d("pin", pinCode.toByteArray(Charset.forName("ASCII")).toHexString())
+        val pinRequest = AuthenticatorGetPinTokenRequest(platformPublicKey, finalEncrypted)
+        val pin = connection.runCommand(AuthenticatorGetPinTokenCommand(pinRequest))
 
-
-        val pinRequest = AuthenticatorClientPinRequest(false, platformPublicKey, finalEncrypted)
-        val pin = connection.runCommand(AuthenticatorClientPinCommand(pinRequest))
+        Log.d("token", pin.pinUvAuthToken?.toHexString().orEmpty())
 
 
 
