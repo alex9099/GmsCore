@@ -5,6 +5,7 @@
 
 package org.microg.gms.fido.core.transport
 
+import android.R.attr.key
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
@@ -31,6 +32,7 @@ import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
+import javax.crypto.Mac
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
@@ -264,14 +266,22 @@ abstract class TransportHandler(val transport: Transport, val callback: Transpor
 
         Log.d("token", pin.pinUvAuthToken?.toHexString().orEmpty())
 
+        val token = pin.pinUvAuthToken
 
+        val secretKeySpec = SecretKeySpec(token, "HmacSHA256")
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(secretKeySpec)
+        val hashedPinUvAuthParam = mac.doFinal(clientDataHash)
+        Log.d("hashedMAC", hashedPinUvAuthParam.toHexString())
 
         val request = AuthenticatorGetAssertionRequest(
             options.rpId,
             clientDataHash,
             options.signOptions.allowList.orEmpty(),
             extensions,
-            reqOptions
+            reqOptions,
+            hashedPinUvAuthParam,
+                1
         )
         val ctap2Response = connection.runCommand(AuthenticatorGetAssertionCommand(request))
         return ctap2Response to ctap2Response.credential?.id
