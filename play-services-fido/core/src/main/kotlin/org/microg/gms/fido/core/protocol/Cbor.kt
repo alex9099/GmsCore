@@ -11,6 +11,7 @@ import com.google.android.gms.fido.fido2.api.common.PublicKeyCredentialParameter
 import com.google.android.gms.fido.fido2.api.common.PublicKeyCredentialRpEntity
 import com.google.android.gms.fido.fido2.api.common.PublicKeyCredentialUserEntity
 import com.upokecenter.cbor.CBORObject
+import java.math.BigInteger
 
 private const val TAG = "FidoCbor"
 
@@ -34,6 +35,7 @@ fun String.encodeAsCbor() = CBORObject.FromObject(this)
 fun ByteArray.encodeAsCbor() = CBORObject.FromObject(this)
 fun Int.encodeAsCbor() = CBORObject.FromObject(this)
 fun Boolean.encodeAsCbor() = CBORObject.FromObject(this)
+fun BigInteger.encodeAsCbor() = CBORObject.FromObject(this)
 
 fun PublicKeyCredentialRpEntity.encodeAsCbor() = CBORObject.NewMap().apply {
     set("id", id.encodeAsCbor())
